@@ -39,13 +39,25 @@ const TILE_TEXTURES = {
 
 const SOLID_TILES = new Set([T.WATER, T.TREE, T.HOUSE_WALL, T.HOUSE_ROOF, T.ROCK, T.FENCE]);
 
+// Mapa persistente (se genera una sola vez)
+let cachedMap = null;
+let cachedHouses = null;
+
+// Generador pseudo-aleatorio con semilla para mapa consistente
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 1664525 + 1013904223) & 0xFFFFFFFF;
+    return (s >>> 0) / 0xFFFFFFFF;
+  };
+}
+
 export class OverworldScene extends Phaser.Scene {
   constructor() {
     super({ key: 'OverworldScene' });
   }
 
   init(data) {
-    // Estado del jugador persistente entre escenas
     this.playerData = data.playerData || {
       team: [createAnimalInstance(ANIMALS.find(a => a.name === 'Lobo'), 5)],
       captureBalls: 10,
@@ -54,11 +66,19 @@ export class OverworldScene extends Phaser.Scene {
     };
     this.defeatedNPCIndex = data.defeatedNPC;
     this.isReturning = !!data.playerData;
+    this.returnPosition = data.playerPosition || null;
   }
 
   create() {
-    // Generar mapa
-    this.map = this.generateMap();
+    // Usar mapa cacheado o generar uno nuevo (solo la primera vez)
+    if (cachedMap) {
+      this.map = cachedMap;
+      this.houses = cachedHouses;
+    } else {
+      this.map = this.generateMap();
+      cachedMap = this.map;
+      cachedHouses = this.houses;
+    }
 
     // Crear tilemap visual
     this.createTilemap();
@@ -94,6 +114,7 @@ export class OverworldScene extends Phaser.Scene {
     this.interacting = false;
     this.dialogBox = null;
     this.encounterCooldown = 0;
+    this.encounterSteps = 0;
 
     // Marcar NPC derrotado si volvemos de batalla
     if (this.defeatedNPCIndex !== undefined && this.npcs[this.defeatedNPCIndex]) {
@@ -106,7 +127,6 @@ export class OverworldScene extends Phaser.Scene {
         if (this.npcs[idx]) this.npcs[idx].defeated = true;
       });
     }
-    // Guardar estado de derrotados
     if (!this.playerData._defeatedNPCs) this.playerData._defeatedNPCs = [];
     if (this.defeatedNPCIndex !== undefined && !this.playerData._defeatedNPCs.includes(this.defeatedNPCIndex)) {
       this.playerData._defeatedNPCs.push(this.defeatedNPCIndex);
@@ -117,19 +137,20 @@ export class OverworldScene extends Phaser.Scene {
 
     // Mensaje solo la primera vez
     if (!this.isReturning) {
-      this.showDialog('Has recibido un Lobo nivel 5!\nExplora el mundo y derrota entrenadores.\nCamina por la hierba alta para encontrar animales salvajes.', () => {
+      this.showDialog('Has recibido un Lobo nivel 5!\nExplora el mundo y derrota entrenadores.\nCamina por la hierba alta para encontrar animales salvajes.\nEntra en casas con puerta para curarte.', () => {
         this.interacting = false;
       });
     }
   }
 
   generateMap() {
+    const rng = seededRandom(42);
     const map = Array.from({ length: MAP_H }, () => Array(MAP_W).fill(T.GRASS));
 
     // Variar el pasto
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
-        if (Math.random() < 0.3) map[y][x] = T.GRASS_DARK;
+        if (rng() < 0.3) map[y][x] = T.GRASS_DARK;
       }
     }
 
@@ -230,7 +251,7 @@ export class OverworldScene extends Phaser.Scene {
       for (let y = f.y; y < f.y + f.h && y < MAP_H; y++) {
         for (let x = f.x; x < f.x + f.w && x < MAP_W; x++) {
           if (map[y][x] === T.GRASS || map[y][x] === T.GRASS_DARK) {
-            if (Math.random() < 0.7) map[y][x] = T.TREE;
+            if (rng() < 0.7) map[y][x] = T.TREE;
           }
         }
       }
@@ -238,8 +259,8 @@ export class OverworldScene extends Phaser.Scene {
 
     // Arboles sueltos decorativos
     for (let i = 0; i < 40; i++) {
-      const tx = Math.floor(Math.random() * MAP_W);
-      const ty = Math.floor(Math.random() * MAP_H);
+      const tx = Math.floor(rng() * MAP_W);
+      const ty = Math.floor(rng() * MAP_H);
       if (map[ty][tx] === T.GRASS || map[ty][tx] === T.GRASS_DARK) {
         map[ty][tx] = T.TREE;
       }
@@ -247,8 +268,8 @@ export class OverworldScene extends Phaser.Scene {
 
     // Rocas
     for (let i = 0; i < 20; i++) {
-      const rx = Math.floor(Math.random() * MAP_W);
-      const ry = Math.floor(Math.random() * MAP_H);
+      const rx = Math.floor(rng() * MAP_W);
+      const ry = Math.floor(rng() * MAP_H);
       if (map[ry][rx] === T.GRASS || map[ry][rx] === T.GRASS_DARK) {
         map[ry][rx] = T.ROCK;
       }
@@ -258,7 +279,7 @@ export class OverworldScene extends Phaser.Scene {
     const houses = [
       { x: 7, y: 8, w: 3, h: 2, label: 'Casa de Carlos' },
       { x: 33, y: 8, w: 3, h: 2, label: 'Tienda' },
-      { x: 52, y: 22, w: 3, h: 2, label: 'Centro Animal' },
+      { x: 52, y: 22, w: 3, h: 2, label: 'Centro Animal', heals: true },
       { x: 7, y: 23, w: 3, h: 2, label: 'Casa de Maria' },
       { x: 33, y: 22, w: 3, h: 2, label: 'Lab. Profesor' },
       { x: 52, y: 38, w: 3, h: 2, label: 'Casa del Lider' },
@@ -283,7 +304,6 @@ export class OverworldScene extends Phaser.Scene {
     this.houses = houses;
 
     // Cercas alrededor de algunas zonas
-    // Cerca del pueblo central
     for (let x = 28; x <= 36; x++) {
       if (map[19][x] === T.GRASS || map[19][x] === T.GRASS_DARK) map[19][x] = T.FENCE;
       if (map[24][x] === T.GRASS || map[24][x] === T.GRASS_DARK) map[24][x] = T.FENCE;
@@ -327,12 +347,15 @@ export class OverworldScene extends Phaser.Scene {
 
     // Labels de casas
     this.houses.forEach(h => {
-      this.add.text(
+      const label = this.add.text(
         (h.x + h.w / 2) * TILE,
         h.y * TILE - 8,
         h.label,
         { fontSize: '9px', fontFamily: 'monospace', fill: '#FFD700', stroke: '#000', strokeThickness: 2 }
       ).setOrigin(0.5);
+      if (h.heals) {
+        label.setColor('#FF88AA');
+      }
     });
 
     // Bordes del mundo como colision
@@ -340,9 +363,15 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   createPlayer() {
-    // Buscar posicion inicial en un camino
-    let startX = 6 * TILE + TILE / 2;
-    let startY = 11 * TILE + TILE / 2;
+    let startX, startY;
+
+    if (this.returnPosition) {
+      startX = this.returnPosition.x;
+      startY = this.returnPosition.y;
+    } else {
+      startX = 6 * TILE + TILE / 2;
+      startY = 11 * TILE + TILE / 2;
+    }
 
     this.player = this.physics.add.sprite(startX, startY, 'player_down');
     this.player.setCollideWorldBounds(true);
@@ -355,37 +384,52 @@ export class OverworldScene extends Phaser.Scene {
   createNPCs() {
     // Posiciones para NPCs (en caminos o cerca de casas)
     const npcPositions = [
-      { x: 10, y: 10, },
-      { x: 32, y: 10, },
-      { x: 53, y: 24, },
-      { x: 8, y: 25, },
-      { x: 34, y: 24, },
-      { x: 53, y: 40, },
-      { x: 21, y: 40, },
-      { x: 8, y: 40, },
-      // En caminos
-      { x: 20, y: 11, },
-      { x: 40, y: 11, },
-      { x: 25, y: 26, },
-      { x: 45, y: 26, },
-      { x: 15, y: 41, },
-      { x: 35, y: 41, },
-      // Exploradores cerca de hierba alta
-      { x: 10, y: 5, },
-      { x: 23, y: 5, },
-      { x: 37, y: 7, },
-      { x: 47, y: 30, },
-      { x: 10, y: 33, },
-      { x: 40, y: 16, },
-      // Extra
-      { x: 55, y: 10, },
-      { x: 30, y: 35, },
-      { x: 12, y: 18, },
-      { x: 46, y: 44, },
-      { x: 25, y: 44, },
+      { x: 10, y: 10 },
+      { x: 32, y: 10 },
+      { x: 53, y: 24 },
+      { x: 8, y: 25 },
+      { x: 34, y: 24 },
+      { x: 53, y: 40 },
+      { x: 21, y: 40 },
+      { x: 8, y: 40 },
+      { x: 20, y: 11 },
+      { x: 40, y: 11 },
+      { x: 25, y: 26 },
+      { x: 45, y: 26 },
+      { x: 15, y: 41 },
+      { x: 35, y: 41 },
+      { x: 10, y: 5 },
+      { x: 23, y: 5 },
+      { x: 37, y: 7 },
+      { x: 47, y: 30 },
+      { x: 10, y: 33 },
+      { x: 40, y: 16 },
+      { x: 55, y: 10 },
+      { x: 30, y: 35 },
+      { x: 12, y: 18 },
+      { x: 46, y: 44 },
+      { x: 25, y: 44 },
     ];
 
     npcPositions.forEach((pos, i) => {
+      // Validar que la posición no sea un tile sólido
+      if (pos.x >= 0 && pos.x < MAP_W && pos.y >= 0 && pos.y < MAP_H) {
+        if (SOLID_TILES.has(this.map[pos.y][pos.x])) {
+          // Buscar tile caminable cercano
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const nx = pos.x + dx;
+              const ny = pos.y + dy;
+              if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && !SOLID_TILES.has(this.map[ny][nx])) {
+                pos.x = nx;
+                pos.y = ny;
+                dy = 3; dx = 3; // break both loops
+              }
+            }
+          }
+        }
+      }
+
       const name = NPC_NAMES[i % NPC_NAMES.length];
       const spriteKey = `npc_${i}`;
 
@@ -398,6 +442,10 @@ export class OverworldScene extends Phaser.Scene {
       npcSprite.setOffset(6, 10);
       npcSprite.setImmovable(true);
       npcSprite.setDepth(9);
+
+      // Guardar posición original para limitar rango de movimiento
+      const originX = pos.x * TILE + TILE / 2;
+      const originY = pos.y * TILE + TILE / 2;
 
       // Equipo del NPC (1-3 animales aleatorios)
       const teamSize = Math.min(3, Math.floor(i / 5) + 1);
@@ -416,6 +464,8 @@ export class OverworldScene extends Phaser.Scene {
         index: i,
         moveTimer: 0,
         moveDir: null,
+        originX,
+        originY,
         dialogues: {
           before: this.getPreBattleDialogue(name),
           after: `${name}: Bien jugado, eres fuerte!`
@@ -426,23 +476,6 @@ export class OverworldScene extends Phaser.Scene {
 
       // Colision con jugador
       this.physics.add.collider(this.player, npcSprite);
-
-      // Exclamacion sobre la cabeza si no derrotado
-      const exclamation = this.add.text(
-        npcSprite.x,
-        npcSprite.y - 22,
-        '!',
-        { fontSize: '14px', fontFamily: 'monospace', fill: '#FF4444', fontStyle: 'bold', stroke: '#000', strokeThickness: 2 }
-      ).setOrigin(0.5).setDepth(11);
-      npc.exclamation = exclamation;
-
-      this.tweens.add({
-        targets: exclamation,
-        y: npcSprite.y - 26,
-        duration: 1000,
-        yoyo: true,
-        repeat: -1
-      });
     });
   }
 
@@ -460,9 +493,6 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   createUI() {
-    // UI fija en la camara
-    this.uiContainer = this.add.container(0, 0).setScrollFactor(0).setDepth(100);
-
     // Info del equipo (esquina superior izquierda)
     this.teamInfo = this.add.text(10, 10, '', {
       fontSize: '11px', fontFamily: 'monospace', fill: '#FFF',
@@ -526,18 +556,27 @@ export class OverworldScene extends Phaser.Scene {
     // Colision con tiles solidos
     this.handleTileCollision();
 
-    // Verificar hierba alta para encuentros
-    if (this.encounterCooldown > 0) {
-      this.encounterCooldown -= delta;
-    } else if ((vx !== 0 || vy !== 0) && this.isOnTallGrass()) {
-      if (Math.random() < 0.03) { // ~3% por frame en hierba
-        this.triggerWildEncounter();
+    // Verificar hierba alta para encuentros (basado en distancia recorrida, no por frame)
+    if (vx !== 0 || vy !== 0) {
+      const distThisFrame = Math.sqrt(vx * vx + vy * vy) * (delta / 1000);
+      this.encounterSteps += distThisFrame;
+
+      if (this.encounterCooldown > 0) {
+        this.encounterCooldown -= delta;
+      } else if (this.isOnTallGrass() && this.encounterSteps > 32) {
+        // Cada ~1 tile recorrido en hierba, 8% de probabilidad
+        this.encounterSteps = 0;
+        if (Math.random() < 0.08) {
+          this.triggerWildEncounter();
+        }
       }
     }
 
-    // Interaccion con NPCs
+    // Interaccion con NPCs y puertas
     if (Phaser.Input.Keyboard.JustDown(this.enterKey) || Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
-      this.interactWithNearbyNPC();
+      if (!this.tryHealAtDoor()) {
+        this.interactWithNearbyNPC();
+      }
     }
 
     // Movimiento de NPCs
@@ -545,18 +584,69 @@ export class OverworldScene extends Phaser.Scene {
 
     // Actualizar exclamaciones de NPCs
     this.npcs.forEach(npc => {
-      if (npc.exclamation) {
-        npc.exclamation.x = npc.sprite.x;
-        npc.exclamation.setVisible(!npc.defeated);
+      if (npc._exclamation) {
+        npc._exclamation.setPosition(npc.sprite.x, npc.sprite.y - 24);
+        npc._exclamation.setVisible(!npc.defeated);
       }
     });
+  }
+
+  tryHealAtDoor() {
+    const tx = Math.floor(this.player.x / TILE);
+    const ty = Math.floor(this.player.y / TILE);
+
+    // Verificar tile enfrente del jugador
+    const facingOffsets = {
+      up: { dx: 0, dy: -1 },
+      down: { dx: 0, dy: 1 },
+      left: { dx: -1, dy: 0 },
+      right: { dx: 1, dy: 0 },
+    };
+    const offset = facingOffsets[this.playerDir];
+    const doorX = tx + offset.dx;
+    const doorY = ty + offset.dy;
+
+    if (doorX >= 0 && doorX < MAP_W && doorY >= 0 && doorY < MAP_H &&
+        this.map[doorY][doorX] === T.HOUSE_DOOR) {
+      // Buscar si es el Centro Animal
+      const house = this.houses.find(h => {
+        const hDoorX = h.x + Math.floor(h.w / 2);
+        return hDoorX === doorX && h.y + 1 === doorY;
+      });
+
+      if (house && house.heals) {
+        this.playerData.team.forEach(a => {
+          a.currentHp = a.maxHp;
+          a.statusEffect = null;
+          a.moveSet.forEach(m => m.currentPp = m.pp);
+        });
+        sfxPlayer.playLevelUp();
+        this.showDialog('Tus animales han sido curados!\nTodos recuperaron su salud completa.', () => {
+          this.interacting = false;
+          this.updateUI();
+        });
+        return true;
+      } else if (house) {
+        // Curación parcial en cualquier casa
+        this.playerData.team.forEach(a => {
+          a.currentHp = Math.min(a.maxHp, a.currentHp + Math.floor(a.maxHp * 0.3));
+          a.moveSet.forEach(m => m.currentPp = Math.min(m.pp, m.currentPp + Math.floor(m.pp * 0.3)));
+        });
+        sfxPlayer.playSelect();
+        this.showDialog(`${house.label}: Descansas un momento.\nTus animales recuperaron algo de salud.`, () => {
+          this.interacting = false;
+          this.updateUI();
+        });
+        return true;
+      }
+    }
+    return false;
   }
 
   handleTileCollision() {
     const px = Math.floor(this.player.x / TILE);
     const py = Math.floor(this.player.y / TILE);
 
-    // Revisar tiles alrededor
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const tx = px + dx;
@@ -574,7 +664,6 @@ export class OverworldScene extends Phaser.Scene {
 
           if (playerRight > tileLeft && playerLeft < tileRight &&
               playerBottom > tileTop && playerTop < tileBottom) {
-            // Resolver colision
             const overlapX = Math.min(playerRight - tileLeft, tileRight - playerLeft);
             const overlapY = Math.min(playerBottom - tileTop, tileBottom - playerTop);
 
@@ -608,7 +697,6 @@ export class OverworldScene extends Phaser.Scene {
     sfxPlayer.playEncounter();
     musicPlayer.stop();
 
-    // Flash de transicion
     this.cameras.main.flash(300, 0, 0, 0);
 
     this.time.delayedCall(400, () => {
@@ -621,7 +709,8 @@ export class OverworldScene extends Phaser.Scene {
       this.scene.start('BattleScene', {
         playerData: this.playerData,
         enemy: { name: 'Salvaje', team: [wildAnimal], isWild: true },
-        returnScene: 'OverworldScene'
+        returnScene: 'OverworldScene',
+        playerPosition: { x: this.player.x, y: this.player.y }
       });
     });
   }
@@ -660,13 +749,15 @@ export class OverworldScene extends Phaser.Scene {
                 name: closestNPC.name,
                 team: closestNPC.team.map(a => ({
                   ...a,
-                  currentHp: a.maxHp, // restaurar HP para la batalla
-                  statusEffect: null
+                  currentHp: a.maxHp,
+                  statusEffect: null,
+                  moveSet: a.moveSet.map(m => ({ ...m, currentPp: m.pp }))
                 })),
                 isWild: false,
                 npcIndex: closestNPC.index
               },
-              returnScene: 'OverworldScene'
+              returnScene: 'OverworldScene',
+              playerPosition: { x: this.player.x, y: this.player.y }
             });
           });
         });
@@ -677,7 +768,6 @@ export class OverworldScene extends Phaser.Scene {
   showDialog(text, onClose) {
     this.interacting = true;
 
-    // Eliminar dialogo anterior
     if (this.dialogContainer) {
       this.dialogContainer.destroy();
     }
@@ -711,7 +801,6 @@ export class OverworldScene extends Phaser.Scene {
 
     this.dialogContainer.add([bg, dialogText, continueText]);
 
-    // Cerrar con enter/space/click
     const closeDialog = () => {
       if (this.dialogContainer) {
         this.dialogContainer.destroy();
@@ -732,6 +821,16 @@ export class OverworldScene extends Phaser.Scene {
 
   updateNPCs(time, delta) {
     this.npcs.forEach(npc => {
+      // Crear exclamación una sola vez (sin tween para que siga al NPC)
+      if (!npc._exclamation) {
+        npc._exclamation = this.add.text(
+          npc.sprite.x,
+          npc.sprite.y - 24,
+          '!',
+          { fontSize: '14px', fontFamily: 'monospace', fill: '#FF4444', fontStyle: 'bold', stroke: '#000', strokeThickness: 2 }
+        ).setOrigin(0.5).setDepth(11);
+      }
+
       npc.moveTimer -= delta;
       if (npc.moveTimer <= 0) {
         npc.moveTimer = 1500 + Math.random() * 3000;
@@ -745,9 +844,23 @@ export class OverworldScene extends Phaser.Scene {
           { vx: 0, vy: 0 },
         ];
         const dir = dirs[Math.floor(Math.random() * dirs.length)];
-        npc.sprite.setVelocity(dir.vx, dir.vy);
 
-        // Detener despues de un rato
+        // Verificar que no se mueva a un tile sólido
+        const nextX = npc.sprite.x + dir.vx * 0.5;
+        const nextY = npc.sprite.y + dir.vy * 0.5;
+        const nextTileX = Math.floor(nextX / TILE);
+        const nextTileY = Math.floor(nextY / TILE);
+
+        // Limitar rango de movimiento (3 tiles de su posición original)
+        const distFromOrigin = Math.abs(nextX - npc.originX) + Math.abs(nextY - npc.originY);
+
+        if (nextTileX >= 0 && nextTileX < MAP_W && nextTileY >= 0 && nextTileY < MAP_H &&
+            !this.collisionMap[nextTileY][nextTileX] && distFromOrigin < TILE * 3) {
+          npc.sprite.setVelocity(dir.vx, dir.vy);
+        } else {
+          npc.sprite.setVelocity(0, 0);
+        }
+
         this.time.delayedCall(500, () => {
           if (npc.sprite.active) npc.sprite.setVelocity(0, 0);
         });

@@ -23,7 +23,8 @@ export class BattleScene extends Phaser.Scene {
     this.playerData = data.playerData;
     this.enemy = data.enemy;
     this.returnScene = data.returnScene;
-    this.currentPlayerAnimal = 0; // indice en el equipo
+    this.playerPosition = data.playerPosition || null;
+    this.currentPlayerAnimal = 0;
     this.currentEnemyAnimal = 0;
     this.state = STATE.INTRO;
     this.battleLog = [];
@@ -32,32 +33,28 @@ export class BattleScene extends Phaser.Scene {
   create() {
     const { width, height } = this.cameras.main;
 
-    // Fondo de batalla
     this.drawBattleBackground(width, height);
-
-    // Generar sprites de los animales en batalla
     this.setupBattleAnimals();
-
-    // UI de batalla
     this.createBattleUI(width, height);
 
-    // Input
+    // Input - crear keys una sola vez
     this.keys = {
       one: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE),
       two: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO),
       three: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.THREE),
       four: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.FOUR),
+      five: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.FIVE),
+      six: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SIX),
       c: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
       t: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T),
+      r: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R),
       enter: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER),
       space: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
       esc: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC),
     };
+    this.switchKeys = [this.keys.one, this.keys.two, this.keys.three, this.keys.four, this.keys.five, this.keys.six];
 
-    // Musica de batalla
     musicPlayer.playBattleMusic();
-
-    // Intro
     this.showBattleIntro();
   }
 
@@ -72,19 +69,15 @@ export class BattleScene extends Phaser.Scene {
   drawBattleBackground(w, h) {
     const bg = this.add.graphics();
 
-    // Cielo
     bg.fillStyle(0x4488CC, 1);
     bg.fillRect(0, 0, w, h * 0.45);
 
-    // Suelo - arena de batalla
     bg.fillStyle(0x88AA66, 1);
     bg.fillRect(0, h * 0.45, w, h * 0.55);
 
-    // Linea de horizonte
     bg.lineStyle(2, 0x6B8E23);
     bg.lineBetween(0, h * 0.45, w, h * 0.45);
 
-    // Montanas de fondo
     bg.fillStyle(0x557744, 0.5);
     for (let i = 0; i < 5; i++) {
       const mx = i * 200 - 50;
@@ -95,21 +88,18 @@ export class BattleScene extends Phaser.Scene {
   setupBattleAnimals() {
     const { width, height } = this.cameras.main;
 
-    // Sprite del animal del jugador (izquierda abajo)
     const playerAnimal = this.getPlayerAnimal();
     const playerKey = `battle_player_${playerAnimal.id}`;
     generateAnimalSprite(this, playerAnimal, playerKey);
     this.playerAnimalSprite = this.add.image(180, height * 0.55, playerKey);
     this.playerAnimalSprite.setScale(2.5);
 
-    // Sprite del animal enemigo (derecha arriba)
     const enemyAnimal = this.getEnemyAnimal();
     const enemyKey = `battle_enemy_${enemyAnimal.id}`;
     generateAnimalSprite(this, enemyAnimal, enemyKey);
     this.enemyAnimalSprite = this.add.image(width - 180, height * 0.32, enemyKey);
     this.enemyAnimalSprite.setScale(2.5);
 
-    // Plataformas
     const platforms = this.add.graphics();
     platforms.fillStyle(0x557744, 0.6);
     platforms.fillEllipse(180, height * 0.65, 160, 30);
@@ -141,7 +131,6 @@ export class BattleScene extends Phaser.Scene {
     });
     this.enemyInfoPanel.add(this.enemyTypeText);
 
-    // Barra HP enemigo
     this.enemyHpBarBg = this.add.graphics();
     this.enemyHpBarBg.fillStyle(0x333333, 1);
     this.enemyHpBarBg.fillRect(10, 45, 260, 12);
@@ -179,7 +168,6 @@ export class BattleScene extends Phaser.Scene {
     });
     this.playerInfoPanel.add(this.playerTypeText);
 
-    // Barra HP jugador
     this.playerHpBarBg = this.add.graphics();
     this.playerHpBarBg.fillStyle(0x333333, 1);
     this.playerHpBarBg.fillRect(10, 45, 260, 12);
@@ -193,7 +181,6 @@ export class BattleScene extends Phaser.Scene {
     }).setOrigin(0.5, 0);
     this.playerInfoPanel.add(this.playerHpText);
 
-    // Barra EXP
     this.playerExpBarBg = this.add.graphics();
     this.playerExpBarBg.fillStyle(0x333333, 1);
     this.playerExpBarBg.fillRect(10, 65, 260, 8);
@@ -224,9 +211,9 @@ export class BattleScene extends Phaser.Scene {
       align: 'center'
     }).setOrigin(0.5).setDepth(50);
 
-    // Textos de movimientos (se actualizan dinamicamente)
     this.moveTexts = [];
     this.moveHitAreas = [];
+    this.extraActionTexts = [];
 
     this.updateBattleInfo();
   }
@@ -235,32 +222,27 @@ export class BattleScene extends Phaser.Scene {
     const pAnimal = this.getPlayerAnimal();
     const eAnimal = this.getEnemyAnimal();
 
-    // Info enemigo
     const enemyLabel = this.enemy.isWild ? `${eAnimal.name} (Salvaje)` : `${eAnimal.name}`;
     this.enemyNameText.setText(enemyLabel);
     this.enemyLevelText.setText(`Nv.${eAnimal.level}`);
     this.enemyTypeText.setText(`Tipo: ${eAnimal.type}`);
 
-    // HP enemigo
     const eHpPct = Math.max(0, eAnimal.currentHp / eAnimal.maxHp);
     this.enemyHpBar.clear();
     this.enemyHpBar.fillStyle(this.getHpColor(eHpPct), 1);
     this.enemyHpBar.fillRect(10, 45, 260 * eHpPct, 12);
     this.enemyHpText.setText(`${eAnimal.currentHp}/${eAnimal.maxHp}`);
 
-    // Info jugador
     this.playerNameText.setText(pAnimal.name);
     this.playerLevelText.setText(`Nv.${pAnimal.level}`);
     this.playerTypeText.setText(`Tipo: ${pAnimal.type}`);
 
-    // HP jugador
     const pHpPct = Math.max(0, pAnimal.currentHp / pAnimal.maxHp);
     this.playerHpBar.clear();
     this.playerHpBar.fillStyle(this.getHpColor(pHpPct), 1);
     this.playerHpBar.fillRect(10, 45, 260 * pHpPct, 12);
     this.playerHpText.setText(`${pAnimal.currentHp}/${pAnimal.maxHp}`);
 
-    // EXP
     const expPct = pAnimal.expToNext > 0 ? pAnimal.exp / pAnimal.expToNext : 0;
     this.playerExpBar.clear();
     this.playerExpBar.fillStyle(0x4488FF, 1);
@@ -291,53 +273,59 @@ export class BattleScene extends Phaser.Scene {
   showPlayerActions() {
     if (this.state !== STATE.PLAYER_TURN) return;
 
-    // Limpiar acciones anteriores
     this.clearActions();
 
     const pAnimal = this.getPlayerAnimal();
     const { width } = this.cameras.main;
 
-    // Mostrar movimientos
     pAnimal.moveSet.forEach((move, i) => {
       const x = 20 + (i % 2) * (width / 2 - 10);
-      const y = 8 + Math.floor(i / 2) * 32;
+      const y = 8 + Math.floor(i / 2) * 28;
 
       const typeColor = this.getTypeColor(move.type);
       const ppText = `${move.currentPp}/${move.pp}`;
+      const ppColor = move.currentPp <= 0 ? '#666666' : typeColor;
       const label = `[${i + 1}] ${move.name} (${move.type}) P:${move.power} PP:${ppText}`;
 
       const text = this.add.text(x, y, label, {
-        fontSize: '12px', fontFamily: 'monospace', fill: typeColor
+        fontSize: '12px', fontFamily: 'monospace', fill: ppColor
       });
       this.actionPanel.add(text);
       this.moveTexts.push(text);
 
-      // Area interactiva
-      const hitArea = this.add.rectangle(x + 150, this.cameras.main.height - 80 + y + 8, 300, 26)
+      const hitArea = this.add.rectangle(x + 150, this.cameras.main.height - 80 + y + 8, 300, 24)
         .setInteractive({ useHandCursor: true })
         .setAlpha(0.001);
       hitArea.on('pointerdown', () => this.selectMove(i));
       hitArea.on('pointerover', () => text.setColor('#FFD700'));
-      hitArea.on('pointerout', () => text.setColor(typeColor));
+      hitArea.on('pointerout', () => text.setColor(ppColor));
       this.moveHitAreas.push(hitArea);
     });
 
-    // Opciones adicionales
-    const extraY = 68;
-    const captureText = this.enemy.isWild
-      ? this.add.text(20, extraY, `[C] Capturar (${this.playerData.captureBalls})`, {
-          fontSize: '11px', fontFamily: 'monospace', fill: '#FF8844'
-        })
-      : null;
+    // Opciones adicionales en la ultima fila
+    const extraY = 64;
+    if (this.enemy.isWild) {
+      const captureText = this.add.text(20, extraY, `[C] Capturar (${this.playerData.captureBalls})`, {
+        fontSize: '11px', fontFamily: 'monospace', fill: '#FF8844'
+      });
+      this.actionPanel.add(captureText);
+      this.extraActionTexts.push(captureText);
 
-    const switchText = this.playerData.team.length > 1
-      ? this.add.text(width / 2, extraY, `[T] Cambiar animal`, {
-          fontSize: '11px', fontFamily: 'monospace', fill: '#88CCFF'
-        })
-      : null;
+      const fleeText = this.add.text(width / 2 + 100, extraY, `[R] Huir`, {
+        fontSize: '11px', fontFamily: 'monospace', fill: '#CC8888'
+      });
+      this.actionPanel.add(fleeText);
+      this.extraActionTexts.push(fleeText);
+    }
 
-    if (captureText) this.actionPanel.add(captureText);
-    if (switchText) this.actionPanel.add(switchText);
+    if (this.playerData.team.length > 1) {
+      const switchX = this.enemy.isWild ? width / 2 : 20;
+      const switchText = this.add.text(switchX, extraY, `[T] Cambiar animal`, {
+        fontSize: '11px', fontFamily: 'monospace', fill: '#88CCFF'
+      });
+      this.actionPanel.add(switchText);
+      this.extraActionTexts.push(switchText);
+    }
 
     this.showLog('Que deberia hacer ' + pAnimal.name + '?');
   }
@@ -347,6 +335,8 @@ export class BattleScene extends Phaser.Scene {
     this.moveTexts = [];
     this.moveHitAreas.forEach(h => h.destroy());
     this.moveHitAreas = [];
+    this.extraActionTexts.forEach(t => t.destroy());
+    this.extraActionTexts = [];
   }
 
   getTypeColor(type) {
@@ -366,12 +356,12 @@ export class BattleScene extends Phaser.Scene {
       else if (Phaser.Input.Keyboard.JustDown(this.keys.four)) this.selectMove(3);
       else if (Phaser.Input.Keyboard.JustDown(this.keys.c)) this.attemptCapture();
       else if (Phaser.Input.Keyboard.JustDown(this.keys.t)) this.showSwitchMenu();
+      else if (Phaser.Input.Keyboard.JustDown(this.keys.r)) this.attemptFlee();
     }
 
     if (this.state === STATE.SWITCH) {
-      for (let i = 0; i < this.playerData.team.length; i++) {
-        const key = this.input.keyboard.addKey(49 + i); // teclas 1-6
-        if (Phaser.Input.Keyboard.JustDown(key) && i !== this.currentPlayerAnimal) {
+      for (let i = 0; i < Math.min(this.playerData.team.length, 6); i++) {
+        if (Phaser.Input.Keyboard.JustDown(this.switchKeys[i]) && i !== this.currentPlayerAnimal) {
           if (this.playerData.team[i].currentHp > 0) {
             this.switchAnimal(i);
             break;
@@ -379,8 +369,11 @@ export class BattleScene extends Phaser.Scene {
         }
       }
       if (Phaser.Input.Keyboard.JustDown(this.keys.esc)) {
-        this.state = STATE.PLAYER_TURN;
-        this.showPlayerActions();
+        // Solo cancelar si el animal actual está vivo
+        if (this.getPlayerAnimal().currentHp > 0) {
+          this.state = STATE.PLAYER_TURN;
+          this.showPlayerActions();
+        }
       }
     }
 
@@ -389,6 +382,38 @@ export class BattleScene extends Phaser.Scene {
           Phaser.Input.Keyboard.JustDown(this.keys.space)) {
         this.endBattle();
       }
+    }
+  }
+
+  attemptFlee() {
+    if (!this.enemy.isWild) {
+      this.showLog('No puedes huir de una batalla con un entrenador!');
+      return;
+    }
+
+    this.state = STATE.ANIMATING;
+    this.clearActions();
+
+    // 70% de probabilidad de huir, basado en velocidad
+    const pAnimal = this.getPlayerAnimal();
+    const eAnimal = this.getEnemyAnimal();
+    const fleeChance = Math.min(0.95, 0.5 + (pAnimal.spd - eAnimal.spd) * 0.01);
+
+    if (Math.random() < fleeChance) {
+      this.showLog('Escapaste con exito!');
+      musicPlayer.stop();
+      this.time.delayedCall(1000, () => {
+        this.endBattle();
+      });
+    } else {
+      this.showLog('No pudiste escapar!');
+      this.time.delayedCall(1000, () => {
+        this.executeEnemyMove(() => {
+          if (this.checkBattleEnd()) return;
+          this.state = STATE.PLAYER_TURN;
+          this.showPlayerActions();
+        });
+      });
     }
   }
 
@@ -405,7 +430,6 @@ export class BattleScene extends Phaser.Scene {
     this.state = STATE.ANIMATING;
     this.clearActions();
 
-    // Determinar orden por velocidad
     const eAnimal = this.getEnemyAnimal();
     const playerFirst = pAnimal.spd >= eAnimal.spd;
 
@@ -415,6 +439,7 @@ export class BattleScene extends Phaser.Scene {
         this.executeEnemyMove(() => {
           if (this.checkBattleEnd()) return;
           this.applyStatusEffects();
+          if (this.checkBattleEnd()) return;
           this.state = STATE.PLAYER_TURN;
           this.showPlayerActions();
         });
@@ -425,6 +450,7 @@ export class BattleScene extends Phaser.Scene {
         this.executePlayerMove(move, () => {
           if (this.checkBattleEnd()) return;
           this.applyStatusEffects();
+          if (this.checkBattleEnd()) return;
           this.state = STATE.PLAYER_TURN;
           this.showPlayerActions();
         });
@@ -438,14 +464,12 @@ export class BattleScene extends Phaser.Scene {
 
     move.currentPp--;
 
-    // Comprobar precision
     if (Math.random() * 100 > move.accuracy) {
       this.showLog(`${attacker.name} uso ${move.name} pero fallo!`);
       this.time.delayedCall(1200, callback);
       return;
     }
 
-    // Efectos especiales
     if (move.effect === 'poison' && !defender.statusEffect) {
       defender.statusEffect = 'poison';
       this.showLog(`${attacker.name} uso ${move.name}!\n${defender.name} fue envenenado!`);
@@ -464,7 +488,6 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    // Calcular danno
     const damage = calculateDamage(attacker, defender, move);
     const typeMultiplier = getTypeMultiplier(move.type, defender.type);
 
@@ -497,8 +520,8 @@ export class BattleScene extends Phaser.Scene {
     const attacker = this.getEnemyAnimal();
     const defender = this.getPlayerAnimal();
 
-    // IA simple: elegir mejor movimiento
-    let bestMove = attacker.moveSet[0];
+    // IA: elegir mejor movimiento con PP disponible
+    let bestMove = null;
     let bestScore = -1;
 
     attacker.moveSet.forEach(move => {
@@ -514,14 +537,15 @@ export class BattleScene extends Phaser.Scene {
       }
     });
 
-    // Si no hay PP, usar placaje basico
-    if (bestMove.currentPp <= 0) {
+    // Si no hay PP en ningún movimiento, usar Forcejeo
+    if (!bestMove) {
       bestMove = { name: 'Forcejeo', type: 'Normal', power: 30, accuracy: 100, pp: 999, currentPp: 999, description: '' };
     }
 
-    bestMove.currentPp--;
+    if (bestMove.currentPp !== 999) {
+      bestMove.currentPp--;
+    }
 
-    // Comprobar precision
     if (Math.random() * 100 > bestMove.accuracy) {
       this.showLog(`${attacker.name} enemigo uso ${bestMove.name} pero fallo!`);
       this.time.delayedCall(1200, callback);
@@ -609,14 +633,12 @@ export class BattleScene extends Phaser.Scene {
     const pAnimal = this.getPlayerAnimal();
     const eAnimal = this.getEnemyAnimal();
 
-    // Veneno al jugador
     if (pAnimal.statusEffect === 'poison' && pAnimal.currentHp > 0) {
       const poisonDmg = Math.max(1, Math.floor(pAnimal.maxHp * 0.06));
       pAnimal.currentHp = Math.max(0, pAnimal.currentHp - poisonDmg);
       this.showLog(`${pAnimal.name} sufre ${poisonDmg} por veneno!`);
     }
 
-    // Veneno al enemigo
     if (eAnimal.statusEffect === 'poison' && eAnimal.currentHp > 0) {
       const poisonDmg = Math.max(1, Math.floor(eAnimal.maxHp * 0.06));
       eAnimal.currentHp = Math.max(0, eAnimal.currentHp - poisonDmg);
@@ -630,19 +652,17 @@ export class BattleScene extends Phaser.Scene {
     const eAnimal = this.getEnemyAnimal();
     const pAnimal = this.getPlayerAnimal();
 
-    // Enemigo derrotado
     if (eAnimal.currentHp <= 0) {
-      // Hay mas animales enemigos?
       const nextEnemy = this.enemy.team.findIndex((a, i) => i > this.currentEnemyAnimal && a.currentHp > 0);
       if (nextEnemy !== -1) {
         this.currentEnemyAnimal = nextEnemy;
         const newEnemy = this.getEnemyAnimal();
         this.showLog(`${this.enemy.name} envia a ${newEnemy.name}!`);
 
-        // Actualizar sprite enemigo
         const enemyKey = `battle_enemy_${newEnemy.id}`;
         generateAnimalSprite(this, newEnemy, enemyKey);
         this.enemyAnimalSprite.setTexture(enemyKey);
+        this.enemyAnimalSprite.setAlpha(1);
         this.updateBattleInfo();
 
         this.time.delayedCall(1500, () => {
@@ -652,23 +672,19 @@ export class BattleScene extends Phaser.Scene {
         return true;
       }
 
-      // Victoria!
       this.handleVictory();
       return true;
     }
 
-    // Jugador derrotado
     if (pAnimal.currentHp <= 0) {
-      // Hay mas animales del jugador?
       const nextPlayer = this.playerData.team.findIndex((a, i) => i !== this.currentPlayerAnimal && a.currentHp > 0);
       if (nextPlayer !== -1) {
-        this.showLog(`${pAnimal.name} fue derrotado!\nElige otro animal! [T]`);
+        this.showLog(`${pAnimal.name} fue derrotado!\nElige otro animal! (1-${this.playerData.team.length})`);
         this.state = STATE.SWITCH;
         this.showSwitchMenu();
         return true;
       }
 
-      // Derrota
       this.handleDefeat();
       return true;
     }
@@ -681,7 +697,6 @@ export class BattleScene extends Phaser.Scene {
     musicPlayer.stop();
     sfxPlayer.playVictory();
 
-    // Animacion de derrota enemigo
     this.tweens.add({
       targets: this.enemyAnimalSprite,
       y: this.enemyAnimalSprite.y + 60,
@@ -689,21 +704,21 @@ export class BattleScene extends Phaser.Scene {
       duration: 500
     });
 
-    // Dar experiencia
+    // Dar experiencia por CADA enemigo derrotado
     const pAnimal = this.getPlayerAnimal();
-    const eAnimal = this.getEnemyAnimal();
-    const expGain = Math.floor((eAnimal.level * 15 + 10) * (this.enemy.isWild ? 1 : 1.5));
-    pAnimal.exp += expGain;
+    let totalExp = 0;
+    this.enemy.team.forEach(eAnimal => {
+      totalExp += Math.floor((eAnimal.level * 15 + 10) * (this.enemy.isWild ? 1 : 1.5));
+    });
+    pAnimal.exp += totalExp;
 
     let levelUpText = '';
 
-    // Subir de nivel
     while (pAnimal.exp >= pAnimal.expToNext) {
       pAnimal.exp -= pAnimal.expToNext;
       pAnimal.level++;
       pAnimal.expToNext = pAnimal.level * 25;
 
-      // Mejorar stats
       const template = ANIMALS.find(a => a.id === pAnimal.id);
       const mult = 1 + (pAnimal.level - 1) * 0.12;
       pAnimal.maxHp = Math.floor(template.hp * mult);
@@ -716,10 +731,9 @@ export class BattleScene extends Phaser.Scene {
       sfxPlayer.playLevelUp();
     }
 
-    this.showLog(`Victoria! +${expGain} EXP${levelUpText}\n[ENTER] para continuar`);
+    this.showLog(`Victoria! +${totalExp} EXP${levelUpText}\n[ENTER] para continuar`);
     this.updateBattleInfo();
 
-    // Marcar NPC como derrotado
     if (!this.enemy.isWild) {
       this.playerData.victories++;
     }
@@ -737,7 +751,6 @@ export class BattleScene extends Phaser.Scene {
       duration: 500
     });
 
-    // Curar equipo parcialmente
     this.playerData.team.forEach(a => {
       a.currentHp = Math.max(1, Math.floor(a.maxHp * 0.3));
       a.statusEffect = null;
@@ -748,6 +761,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   attemptCapture() {
+    if (this.state !== STATE.PLAYER_TURN) return;
     if (!this.enemy.isWild) {
       this.showLog('No puedes capturar animales de entrenadores!');
       return;
@@ -771,7 +785,6 @@ export class BattleScene extends Phaser.Scene {
 
     this.showLog(`Lanzas una bola de captura...`);
 
-    // Animacion de captura
     if (this.textures.exists('capture_ball')) {
       const ball = this.add.image(200, 400, 'capture_ball');
       this.tweens.add({
@@ -795,7 +808,6 @@ export class BattleScene extends Phaser.Scene {
   processCaptureResult(captureChance) {
     const eAnimal = this.getEnemyAnimal();
 
-    // Animacion de sacudida
     this.tweens.add({
       targets: this.enemyAnimalSprite,
       x: this.enemyAnimalSprite.x + 10,
@@ -804,10 +816,15 @@ export class BattleScene extends Phaser.Scene {
       repeat: 2,
       onComplete: () => {
         if (Math.random() < captureChance) {
-          // Captura exitosa
           sfxPlayer.playCapture();
-          const captured = { ...eAnimal, isWild: false, statusEffect: null };
-          captured.moveSet.forEach(m => m.currentPp = m.pp);
+
+          // Deep copy del animal capturado
+          const captured = {
+            ...eAnimal,
+            isWild: false,
+            statusEffect: null,
+            moveSet: eAnimal.moveSet.map(m => ({ ...m, currentPp: m.pp }))
+          };
           this.playerData.team.push(captured);
 
           this.tweens.add({
@@ -818,13 +835,34 @@ export class BattleScene extends Phaser.Scene {
             duration: 300
           });
 
-          this.showLog(`Capturaste a ${eAnimal.name}!\nSe unio a tu equipo!\n[ENTER] para continuar`);
+          // Dar EXP por captura tambien
+          const pAnimal = this.getPlayerAnimal();
+          const expGain = Math.floor((eAnimal.level * 10 + 5));
+          pAnimal.exp += expGain;
+
+          let levelUpText = '';
+          while (pAnimal.exp >= pAnimal.expToNext) {
+            pAnimal.exp -= pAnimal.expToNext;
+            pAnimal.level++;
+            pAnimal.expToNext = pAnimal.level * 25;
+            const template = ANIMALS.find(a => a.id === pAnimal.id);
+            const mult = 1 + (pAnimal.level - 1) * 0.12;
+            pAnimal.maxHp = Math.floor(template.hp * mult);
+            pAnimal.currentHp = Math.min(pAnimal.currentHp + 15, pAnimal.maxHp);
+            pAnimal.atk = Math.floor(template.atk * mult);
+            pAnimal.def = Math.floor(template.def * mult);
+            pAnimal.spd = Math.floor(template.spd * mult);
+            levelUpText = `\n${pAnimal.name} subio al nivel ${pAnimal.level}!`;
+            sfxPlayer.playLevelUp();
+          }
+
+          this.showLog(`Capturaste a ${eAnimal.name}! +${expGain} EXP${levelUpText}\nSe unio a tu equipo!\n[ENTER] para continuar`);
           this.state = STATE.VICTORY;
           musicPlayer.stop();
+          this.updateBattleInfo();
         } else {
           this.showLog(`${eAnimal.name} escapo de la bola!`);
 
-          // El enemigo ataca
           this.time.delayedCall(1000, () => {
             this.executeEnemyMove(() => {
               if (this.checkBattleEnd()) return;
@@ -851,10 +889,10 @@ export class BattleScene extends Phaser.Scene {
     this.state = STATE.SWITCH;
     this.clearActions();
 
-    this.showLog('Elige un animal (1-6) | [ESC] cancelar');
+    const canCancel = this.getPlayerAnimal().currentHp > 0;
+    this.showLog(`Elige un animal (1-${this.playerData.team.length})${canCancel ? ' | [ESC] cancelar' : ''}`);
 
     this.playerData.team.forEach((animal, i) => {
-      const { width } = this.cameras.main;
       const x = 20;
       const y = 8 + i * 14;
       const isCurrent = i === this.currentPlayerAnimal;
@@ -880,7 +918,6 @@ export class BattleScene extends Phaser.Scene {
 
     this.showLog(`${oldAnimal.name}, regresa!\nVe, ${newAnimal.name}!`);
 
-    // Actualizar sprite
     const playerKey = `battle_player_${newAnimal.id}`;
     generateAnimalSprite(this, newAnimal, playerKey);
 
@@ -900,7 +937,6 @@ export class BattleScene extends Phaser.Scene {
 
     this.updateBattleInfo();
 
-    // El enemigo ataca despues del cambio
     this.time.delayedCall(1200, () => {
       this.executeEnemyMove(() => {
         if (this.checkBattleEnd()) return;
@@ -917,14 +953,10 @@ export class BattleScene extends Phaser.Scene {
   endBattle() {
     musicPlayer.stop();
 
-    // Marcar NPC como derrotado
-    if (!this.enemy.isWild && this.state === STATE.VICTORY && this.enemy.npcIndex !== undefined) {
-      // Esto se manejara en el overworld
-    }
-
     this.scene.start('OverworldScene', {
       playerData: this.playerData,
-      defeatedNPC: (!this.enemy.isWild && this.state === STATE.VICTORY) ? this.enemy.npcIndex : undefined
+      defeatedNPC: (!this.enemy.isWild && this.state === STATE.VICTORY) ? this.enemy.npcIndex : undefined,
+      playerPosition: this.playerPosition
     });
   }
 }
